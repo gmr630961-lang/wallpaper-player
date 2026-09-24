@@ -1,1 +1,284 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Live Wallpaper</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
 
+  html, body {
+    width: 100vw;
+    height: 100vh;
+    overflow: hidden;
+    background: #000;
+    font-family: 'Segoe UI', sans-serif;
+  }
+
+  /* Background media FULL SCREEN */
+  #bgMedia {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100vw;
+    height: 100vh;
+    object-fit: cover;
+    object-position: center;
+    z-index: 0;
+    display: none;
+  }
+
+  /* Welcome / Picker panel */
+  #picker {
+    position: fixed;
+    inset: 0;
+    z-index: 10;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 20px;
+    background: radial-gradient(circle at center, #1a1a2e 0%, #000 100%);
+    color: #fff;
+    transition: opacity 0.5s ease, transform 0.5s ease;
+  }
+
+  #picker.hidden {
+    opacity: 0;
+    pointer-events: none;
+    transform: scale(1.05);
+  }
+
+  #picker h1 {
+    font-size: 2.2rem;
+    font-weight: 600;
+    background: linear-gradient(90deg, #00d4ff, #7b2ff7);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+  }
+
+  #picker p {
+    color: #aaa;
+    font-size: 0.95rem;
+  }
+
+  .btn {
+    padding: 14px 32px;
+    font-size: 1rem;
+    font-weight: 600;
+    border: none;
+    border-radius: 50px;
+    cursor: pointer;
+    color: #fff;
+    background: linear-gradient(90deg, #7b2ff7, #00d4ff);
+    box-shadow: 0 8px 25px rgba(123, 47, 247, 0.45);
+    transition: transform 0.2s, box-shadow 0.2s;
+  }
+
+  .btn:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 12px 30px rgba(0, 212, 255, 0.55);
+  }
+
+  /* Left edge hot-zone */
+  #hotzone {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 40px;
+    height: 100vh;
+    z-index: 20;
+    background: transparent;
+  }
+
+  /* Left slide-out control panel */
+  #controls {
+    position: fixed;
+    top: 50%;
+    left: 0;
+    transform: translate(-110%, -50%);
+    z-index: 30;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    padding: 18px 16px;
+    background: rgba(15, 15, 25, 0.85);
+    backdrop-filter: blur(12px);
+    border-radius: 0 16px 16px 0;
+    box-shadow: 4px 0 25px rgba(0, 0, 0, 0.6);
+    transition: transform 0.35s cubic-bezier(0.4, 0, 0.2, 1);
+  }
+
+  #controls.show {
+    transform: translate(0, -50%);
+  }
+
+  .ctrl-btn {
+    width: 44px;
+    height: 44px;
+    border-radius: 12px;
+    border: none;
+    background: rgba(255, 255, 255, 0.08);
+    color: #fff;
+    font-size: 1.2rem;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: background 0.2s, transform 0.2s;
+  }
+
+  .ctrl-btn:hover {
+    background: rgba(0, 212, 255, 0.35);
+    transform: scale(1.08);
+  }
+
+  .ctrl-btn:active {
+    transform: scale(0.95);
+  }
+</style>
+</head>
+<body>
+
+  <!-- Background media (ek hi element, dynamically img/video banega) -->
+  <img id="bgMedia" alt="">
+
+  <!-- Picker UI -->
+  <div id="picker">
+    <h1>Live Wallpaper</h1>
+    <p>Apni image ya video select karo — fullscreen background ban jayegi</p>
+    <button class="btn" id="selectBtn">📁 Select File</button>
+    <input type="file" id="fileInput" accept="image/*,video/*" hidden>
+  </div>
+
+  <!-- Left edge hot-zone -->
+  <div id="hotzone"></div>
+
+  <!-- Slide-out controls -->
+  <div id="controls">
+    <button class="ctrl-btn" id="changeBtn" title="Change wallpaper">🖼️</button>
+    <button class="ctrl-btn" id="muteBtn" title="Mute/Unmute">🔇</button>
+    <button class="ctrl-btn" id="pauseBtn" title="Pause/Play">⏸️</button>
+    <button class="ctrl-btn" id="fullBtn" title="Fullscreen">⛶</button>
+  </div>
+
+<script>
+  const picker    = document.getElementById('picker');
+  const fileInput = document.getElementById('fileInput');
+  const controls  = document.getElementById('controls');
+  const hotzone   = document.getElementById('hotzone');
+  const bgMedia   = document.getElementById('bgMedia');
+
+  let currentURL = null;
+  let currentVideo = null;
+
+  document.getElementById('selectBtn').addEventListener('click', () => fileInput.click());
+  document.getElementById('changeBtn').addEventListener('click', () => fileInput.click());
+
+  fileInput.addEventListener('change', (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+
+    // Purana cleanup
+    if (currentURL) URL.revokeObjectURL(currentURL);
+    if (currentVideo) {
+      currentVideo.pause();
+      currentVideo.remove();
+      currentVideo = null;
+    }
+
+    currentURL = URL.createObjectURL(file);
+
+    if (file.type.startsWith('video/')) {
+      // Image hatao, video banao
+      bgMedia.style.display = 'none';
+      bgMedia.removeAttribute('src');
+
+      const v = document.createElement('video');
+      v.id = 'bgMedia';
+      v.src = currentURL;
+      v.autoplay = true;
+      v.loop = true;
+      v.muted = true;
+      v.playsInline = true;
+      v.style.cssText = `
+        position: fixed;
+        top: 0; left: 0;
+        width: 100vw;
+        height: 100vh;
+        object-fit: cover;
+        object-position: center;
+        z-index: 0;
+        display: block;
+      `;
+      document.body.insertBefore(v, document.body.firstChild);
+      currentVideo = v;
+
+      // New bgMedia reference
+      window.bgMedia = v;
+      v.play().catch(()=>{});
+    } else {
+      // Image dikhao
+      bgMedia.src = currentURL;
+      bgMedia.style.display = 'block';
+      bgMedia.style.cssText = `
+        position: fixed;
+        top: 0; left: 0;
+        width: 100vw;
+        height: 100vh;
+        object-fit: cover;
+        object-position: center;
+        z-index: 0;
+        display: block;
+      `;
+    }
+
+    picker.classList.add('hidden');
+
+    // Auto-hide controls after 3s
+    setTimeout(() => {
+      controls.classList.remove('show');
+    }, 3000);
+  });
+
+  // Show controls when cursor hits LEFT edge
+  document.addEventListener('mousemove', (e) => {
+    if (e.clientX < 40) {
+      controls.classList.add('show');
+    } else if (e.clientX > 250) {
+      controls.classList.remove('show');
+    }
+  });
+
+  // Mute / Unmute
+  document.getElementById('muteBtn').addEventListener('click', () => {
+    const v = document.querySelector('video#bgMedia') || document.querySelector('video');
+    if (!v) return;
+    v.muted = !v.muted;
+    document.getElementById('muteBtn').textContent = v.muted ? '🔇' : '🔊';
+  });
+
+  // Pause / Play
+  document.getElementById('pauseBtn').addEventListener('click', () => {
+    const v = document.querySelector('video#bgMedia') || document.querySelector('video');
+    if (!v) return;
+    if (v.paused) {
+      v.play();
+      document.getElementById('pauseBtn').textContent = '⏸️';
+    } else {
+      v.pause();
+      document.getElementById('pauseBtn').textContent = '▶️';
+    }
+  });
+
+  // Fullscreen toggle
+  document.getElementById('fullBtn').addEventListener('click', () => {
+    if (!document.fullscreenElement) {
+      document.documentElement.requestFullscreen();
+    } else {
+      document.exitFullscreen();
+    }
+  });
+</script>
+</body>
+</html>
